@@ -1,6 +1,7 @@
 import streamlit as st
 from transformers import MarianMTModel, MarianTokenizer
 from gtts import gTTS
+import torch
 import os
 import tempfile
 from langdetect import detect
@@ -8,6 +9,7 @@ from PIL import Image
 import pytesseract
 import docx
 import PyPDF2
+
 
 # Setup language dictionary
 lang_dict = {
