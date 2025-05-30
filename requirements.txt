@@ -1,9 +1,10 @@
 streamlit
 transformers
 torch
-pyttsx3
-SpeechRecognition
+gtts
+langdetect
 pytesseract
 Pillow
-docx2txt
-sentencepiece
+docx
+python-docx
+PyPDF2
