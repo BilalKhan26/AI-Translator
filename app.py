@@ -1,69 +1,70 @@
 import streamlit as st
-from transformers import pipeline
+from transformers import MarianMTModel, MarianTokenizer
 from gtts import gTTS
-from PIL import Image
-import pytesseract
-import PyPDF2
-import docx
-import tempfile
 import os
+import tempfile
 
-st.set_page_config(page_title="🌍 AI Translator", layout="wide")
+# Set page config
+st.set_page_config(page_title="AI Translator 🌍", layout="centered")
 
-st.title("🌐 AI Translator")
-st.markdown("### 🔤 Translate text, documents, and images to **Urdu**.")
-st.markdown("Upload a file or enter text manually to get started.")
+# Language mapping
+LANGUAGE_CODES = {
+    "English": "en",
+    "Urdu": "ur",
+    "Hindi": "hi",
+    "Arabic": "ar",
+    "French": "fr",
+    "Spanish": "es",
+}
 
-# Define translation pipeline
+# Load model and tokenizer
 @st.cache_resource
-def get_translator():
-    return pipeline("translation", model="Helsinki-NLP/opus-mt-en-ur")
+def load_model_and_tokenizer(src_lang, tgt_lang):
+    model_name = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
+    tokenizer = MarianTokenizer.from_pretrained(model_name)
+    model = MarianMTModel.from_pretrained(model_name)
+    return tokenizer, model
 
-translator = get_translator()
+# Translate text
+def translate_text(text, tokenizer, model):
+    inputs = tokenizer(text, return_tensors="pt", padding=True)
+    translated = model.generate(**inputs)
+    return tokenizer.decode(translated[0], skip_special_tokens=True)
 
-# Translate function
-def translate_text(text):
-    result = translator(text)
-    return result[0]['translation_text']
+# Text-to-speech using gTTS
+def speak(text, lang_code):
+    tts = gTTS(text=text, lang=lang_code)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        return fp.name
 
-# Text input
-input_text = st.text_area("✍️ Enter text in English", height=150)
+# App layout
+st.title("🌐 AI Translator with Voice Output")
 
-# Upload options
-uploaded_file = st.file_uploader("📎 Upload a DOCX, PDF, TXT or Image file", type=["docx", "pdf", "txt", "png", "jpg", "jpeg"])
+src_lang = st.selectbox("From Language", list(LANGUAGE_CODES.keys()), index=0)
+tgt_lang = st.selectbox("To Language", list(LANGUAGE_CODES.keys()), index=1)
 
-# Extract text from file
-def extract_text_from_file(file):
-    if file.type == "application/pdf":
-        reader = PyPDF2.PdfReader(file)
-        return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        doc = docx.Document(file)
-        return "\n".join([para.text for para in doc.paragraphs])
-    elif file.type.startswith("image/"):
-        img = Image.open(file)
-        return pytesseract.image_to_string(img)
-    elif file.type == "text/plain":
-        return str(file.read(), "utf-8")
-    return ""
+input_text = st.text_area("Enter text to translate", height=150)
 
-if uploaded_file:
-    extracted_text = extract_text_from_file(uploaded_file)
-    st.text_area("📝 Extracted Text", extracted_text, height=200)
-    input_text = extracted_text  # auto fill input
-
-if st.button("🌐 Translate to Urdu"):
-    if input_text.strip():
-        translated = translate_text(input_text)
-        st.success("✅ Translated Text:")
-        st.text_area("📄 Urdu Translation", translated, height=150)
-
-        # TTS
-        tts = gTTS(translated, lang='ur')
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-            tts.save(tmp.name)
-            st.audio(tmp.name, format="audio/mp3")
-            with open(tmp.name, "rb") as audio_file:
-                st.download_button("⬇️ Download Urdu Audio", audio_file, file_name="translation.mp3")
+if st.button("Translate"):
+    if input_text.strip() == "":
+        st.warning("⚠️ Please enter some text.")
+    elif src_lang == tgt_lang:
+        st.info("✅ Same language selected. No translation needed.")
+        st.write(input_text)
     else:
-        st.warning("❗ Please enter or upload some text first.")
+        src_code = LANGUAGE_CODES[src_lang]
+        tgt_code = LANGUAGE_CODES[tgt_lang]
+        tokenizer, model = load_model_and_tokenizer(src_code, tgt_code)
+
+        with st.spinner("Translating..."):
+            output_text = translate_text(input_text, tokenizer, model)
+            st.success("Translation Complete!")
+            st.text_area("Translated Text", output_text, height=150)
+
+            # TTS output
+            try:
+                audio_file = speak(output_text, tgt_code)
+                st.audio(audio_file)
+            except Exception as e:
+                st.warning(f"TTS not available for '{tgt_lang}'. Error: {e}")
