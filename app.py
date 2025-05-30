@@ -1,31 +1,99 @@
 import streamlit as st
 from transformers import MarianMTModel, MarianTokenizer
 from langdetect import detect
-import pytesseract
-from PIL import Image
-import pdfplumber
+import speech_recognition as sr
 import pyttsx3
 import base64
+import docx2txt
+import pytesseract
+from PIL import Image
 import os
 
-# UI Setup
-st.set_page_config(page_title="🌐 AI Translator App", layout="centered")
-st.markdown("## 🌍 AI Translator with Speech, Files, and Images")
-st.markdown("Translate between languages including **Urdu** with voice support, file upload, and image OCR.")
-st.markdown("---")
-
-# Language options
+# --- Language dictionary ---
 lang_dict = {
-    "English": "en", "French": "fr", "German": "de",
-    "Spanish": "es", "Italian": "it", "Russian": "ru",
-    "Hindi": "hi", "Urdu": "ur"
+    "English": "en",
+    "French": "fr",
+    "German": "de",
+    "Spanish": "es",
+    "Italian": "it",
+    "Russian": "ru",
+    "Hindi": "hi",
+    "Urdu": "ur"
 }
-langs = list(lang_dict.keys())
 
-src_lang = st.selectbox("🔤 Translate from", langs)
-tgt_lang = st.selectbox("🔠 Translate to", langs)
-src_code, tgt_code = lang_dict[src_lang], lang_dict[tgt_lang]
+# --- Page Config ---
+st.set_page_config(page_title="🌐 AI Translator", layout="centered")
 
+st.markdown("""
+    <style>
+    .main {background-color: #f9f9f9;}
+    h1, h3 {text-align: center; color: #4B8BBE;}
+    .css-1q8dd3e {color: #4B8BBE;}
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🌐 AI Translator")
+st.markdown("### ✨ Translate text, files, and images with speech support")
+
+src_lang_name = st.selectbox("🔤 Translate from", list(lang_dict.keys()))
+tgt_lang_name = st.selectbox("🈯 Translate to", list(lang_dict.keys()))
+
+src_code = lang_dict[src_lang_name]
+tgt_code = lang_dict[tgt_lang_name]
+
+# --- Input method ---
+input_method = st.radio("📝 Select input type", ("Text", "Text File", "Image"))
+
+# --- Input data ---
+def recognize_speech():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("🎙️ Speak now...")
+        audio = r.listen(source)
+    try:
+        text = r.recognize_google(audio)
+        st.success(f"✅ You said: {text}")
+        return text
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        return ""
+
+def extract_text_from_image(img):
+    try:
+        text = pytesseract.image_to_string(img)
+        return text
+    except Exception as e:
+        st.error(f"❌ Image reading error: {e}")
+        return ""
+
+def extract_text_from_file(file):
+    ext = file.name.split('.')[-1]
+    try:
+        if ext == "txt":
+            return file.read().decode()
+        elif ext in ["docx"]:
+            return docx2txt.process(file)
+        else:
+            return ""
+    except Exception as e:
+        st.error(f"❌ File reading error: {e}")
+        return ""
+
+if input_method == "Text":
+    input_text = st.text_area("Enter text here:")
+elif input_method == "Text File":
+    uploaded_file = st.file_uploader("📄 Upload .txt or .docx file", type=['txt', 'docx'])
+    input_text = extract_text_from_file(uploaded_file) if uploaded_file else ""
+elif input_method == "Image":
+    uploaded_img = st.file_uploader("🖼️ Upload an image (JPG/PNG)", type=['jpg', 'png', 'jpeg'])
+    if uploaded_img:
+        img = Image.open(uploaded_img)
+        st.image(img, caption="Uploaded Image", use_column_width=True)
+        input_text = extract_text_from_image(img)
+    else:
+        input_text = ""
+
+# --- Load Translation Model ---
 @st.cache_resource(show_spinner=False)
 def load_model(src, tgt):
     model_name = f"Helsinki-NLP/opus-mt-{src}-{tgt}"
@@ -33,44 +101,27 @@ def load_model(src, tgt):
     model = MarianMTModel.from_pretrained(model_name)
     return model, tokenizer
 
+# --- Translate text ---
 def translate_text(text, src, tgt):
     model, tokenizer = load_model(src, tgt)
     tokens = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
     outputs = model.generate(**tokens)
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-def text_to_speech(text, voice_id=None):
+# --- Text-to-Speech with speaker choice ---
+def speak_text(text, voice_id=None):
     engine = pyttsx3.init()
     voices = engine.getProperty('voices')
     if voice_id is not None:
-        engine.setProperty('voice', voices[voice_id].id)
+        engine.setProperty('voice', voice_id)
     engine.setProperty('rate', 150)
     engine.say(text)
     engine.runAndWait()
 
-# Input Methods
-option = st.radio("📥 Input Method", ["Type", "Upload File", "Upload Image"])
-
-input_text = ""
-if option == "Type":
-    input_text = st.text_area("✍️ Enter text to translate", height=150)
-elif option == "Upload File":
-    uploaded_file = st.file_uploader("📄 Upload a .txt or .pdf file", type=["txt", "pdf"])
-    if uploaded_file:
-        if uploaded_file.type == "text/plain":
-            input_text = uploaded_file.read().decode("utf-8")
-        elif uploaded_file.type == "application/pdf":
-            with pdfplumber.open(uploaded_file) as pdf:
-                input_text = "".join(page.extract_text() for page in pdf.pages)
-elif option == "Upload Image":
-    image_file = st.file_uploader("🖼️ Upload an image", type=["png", "jpg", "jpeg"])
-    if image_file:
-        img = Image.open(image_file)
-        input_text = pytesseract.image_to_string(img)
-
-if st.button("🚀 Translate"):
-    if input_text.strip() == "":
-        st.warning("⚠️ Please provide input text.")
+# --- Translation Button ---
+if st.button("🔁 Translate"):
+    if not input_text.strip():
+        st.warning("⚠️ Please provide some input text.")
     elif src_code == tgt_code:
         st.warning("⚠️ Source and target languages must differ.")
     else:
@@ -78,11 +129,15 @@ if st.button("🚀 Translate"):
         st.success("✅ Translation:")
         st.text_area("📝 Translated Text", translated, height=150)
 
-        if st.button("🔊 Speak"):
-            voice_choice = st.selectbox("🎙️ Choose Voice", ["Voice 1", "Voice 2", "Voice 3"])
-            text_to_speech(translated, voice_id=langs.index(tgt_lang) % 3)
+        # --- Voice Selection ---
+        if st.checkbox("🔊 Listen to the translation"):
+            engine = pyttsx3.init()
+            voices = engine.getProperty('voices')
+            voice_names = [f"{i}: {v.name}" for i, v in enumerate(voices)]
+            selected_voice = st.selectbox("🎤 Choose a voice", voice_names)
+            voice_index = int(selected_voice.split(":")[0])
+            speak_text(translated, voices[voice_index].id)
 
-        # Download
-        b64 = base64.b64encode(translated.encode()).decode()
-        href = f'<a href="data:file/txt;base64,{b64}" download="translated.txt">📥 Download Translation</a>'
-        st.markdown(href, unsafe_allow_html=True)
+        # --- Download Option ---
+        if st.download_button("⬇️ Download Translation", translated, file_name="translated.txt"):
+            st.success("📥 File downloaded successfully.")
