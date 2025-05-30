@@ -1,0 +1,7 @@
+streamlit
+transformers
+langdetect
+pytesseract
+pdfplumber
+Pillow
+pyttsx3
