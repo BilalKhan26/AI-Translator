@@ -1,7 +1,9 @@
 streamlit
 transformers
-langdetect
-pytesseract
-pdfplumber
-Pillow
+torch
 pyttsx3
+SpeechRecognition
+pytesseract
+Pillow
+docx2txt
+sentencepiece
